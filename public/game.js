@@ -214,4 +214,38 @@ const app = {
         for(let i = 0; i < 15; i++) {
             const particle = document.createElement('div');
             particle.className = 'resource-particle';
-            particle.innerText = symbols[Math.floor
+            particle.innerText = symbols[Math.floor(Math.random() * symbols.length)];
+            particle.style.color = colors[Math.floor(Math.random() * colors.length)];
+            
+            particle.style.left = (Math.random() * 80 + 10) + 'vw';
+            particle.style.bottom = (Math.random() * 20 + 20) + 'vh';
+            
+            document.body.appendChild(particle);
+            setTimeout(() => particle.remove(), 1500);
+        }
+    },
+
+    switchScreen: function(screenId) {
+        document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+        document.getElementById(screenId).classList.add('active');
+    },
+
+    showEndScreen: function() {
+        this.switchScreen('endScreen');
+        document.getElementById('finalNetWorth').innerText = this.gameState.netWorth ? this.gameState.netWorth.toLocaleString() : "結算中...";
+    },
+
+    showToast: function(message, type = 'primary') {
+        const container = document.getElementById('toastContainer');
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        toast.innerText = message;
+        container.appendChild(toast);
+        setTimeout(() => {
+            toast.style.opacity = '0';
+            setTimeout(() => toast.remove(), 300);
+        }, 3000);
+    }
+};
+
+window.onload = () => app.init();
