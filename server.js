@@ -7,7 +7,7 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 // 初始化資料庫
-const db = new sqlite3.Database('./.data/tycoon.db');
+const db = new sqlite3.Database('./tycoon.db');
 
 // 定義商品與初始價格、波動率
 const ITEMS = {
