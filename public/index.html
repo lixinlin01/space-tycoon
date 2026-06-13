@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>Space Tycoon Terminal</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="loginScreen" class="screen active">
+        <div class="glass-panel login-box">
+            <h1 class="brand-title">SPACE TYCOON</h1>
+            <p class="subtitle">星際大盤商交易終端 v2.0</p>
+            <input type="text" id="playerNameInput" class="sci-input" placeholder="輸入交易員代號..." autocomplete="off">
+            <button class="btn btn-primary" onclick="app.startGame()">授權登入系統</button>
+            
+            <div class="mini-leaderboard">
+                <h3>🏆 歷史名人堂</h3>
+                <ul id="startLeaderboardList"></ul>
+            </div>
+        </div>
+    </div>
+
+    <div id="gameScreen" class="screen">
+        <nav class="top-nav glass-panel">
+            <div class="nav-brand">TERM-ID: <span id="uiName" class="text-accent"></span></div>
+            <div class="nav-stats">
+                <div class="stat-box">📆 天數 <span id="uiDay" class="text-primary">1/30</span></div>
+                <div class="stat-box">💰 現金 <span class="text-success">$<span id="uiCredits">0</span></span></div>
+                <div class="stat-box">📈 總資產 <span class="text-accent">$<span id="uiNetWorth">0</span></span></div>
+            </div>
+            <button class="btn btn-warning" onclick="app.nextDay()">推進天數 (Next Day)</button>
+        </nav>
+
+        <div class="dashboard-grid">
+            <div class="glass-panel panel-market">
+                <div class="panel-header"><h2>📊 實時星際行情</h2></div>
+                <table class="market-table">
+                    <thead>
+                        <tr><th>商品名稱</th><th>現價</th><th>趨勢</th><th>操作面板</th></tr>
+                    </thead>
+                    <tbody id="marketBody"></tbody>
+                </table>
+            </div>
+
+            <div class="glass-panel panel-log">
+                <div class="panel-header"><h2>📡 星際情報網</h2></div>
+                <div id="eventLog" class="log-content text-warning">正在連線至情報網路...</div>
+            </div>
+
+            <div class="glass-panel panel-inventory">
+                <div class="panel-header"><h2>📦 貨艙清單</h2></div>
+                <div id="inventoryGrid" class="inventory-grid"></div>
+            </div>
+        </div>
+
+        <div class="planet-section glass-panel">
+            <div class="panel-header"><h2>🌌 星系資源產地 (點擊星球進行深度掃描)</h2></div>
+            <div id="planetGrid" class="planet-grid"></div>
+        </div>
+    </div>
+
+    <div id="endScreen" class="screen">
+        <div class="glass-panel end-box">
+            <h1 class="text-warning">合約到期</h1>
+            <p>30 天交易期滿，您的最終總資產為：</p>
+            <h2 class="text-success glow-text">$<span id="finalNetWorth">0</span></h2>
+            <button class="btn btn-primary" onclick="location.reload()">重新簽署合約</button>
+        </div>
+    </div>
+
+    <div id="cyberModal" class="cyber-modal hidden">
+        <div class="cyber-modal-content">
+            <div class="modal-scanline"></div>
+            <button class="btn-close-modal" onclick="app.closeModal()">[ 關閉連線 ]</button>
+            <h2 id="modalTitle" class="glitch-title">SYSTEM_NAME</h2>
+            <div class="modal-body">
+                <div class="cyber-data-row">
+                    <span class="data-label">資源代碼：</span>
+                    <span id="modalResCode" class="text-accent glow-text"></span>
+                </div>
+                <div class="cyber-data-row">
+                    <span class="data-label">投資風險：</span>
+                    <span id="modalRisk" class="text-warning"></span>
+                </div>
+                <div class="cyber-data-row">
+                    <span class="data-label">預估波動率：</span>
+                    <span id="modalVol" class="text-primary"></span>
+                </div>
+                <hr class="cyber-divider">
+                <p id="modalDesc" class="cyber-desc"></p>
+            </div>
+        </div>
+    </div>
+
+    <div id="toastContainer"></div>
+    <script src="game.js"></script>
+</body>
+</html>
