@@ -1,147 +1,251 @@
-const express = require('express');
-const sqlite3 = require('sqlite3').verbose();
-const path = require('path');
+const app = {
+    playerId: null,
+    gameState: null,
+    
+    planetDB: {
+        'rations': { name: '農業星 Demeter', risk: '極低 (安全避險)', vol: '10%', desc: '溫室覆蓋率達 90% 的農業行星，氣候由 AI 嚴格控制。雖然投資回報率低，但在市場動盪時是最好的資金避風港。', color: '#4ade80', bg: 'linear-gradient(45deg, #064e3b, #4ade80)' },
+        'titanium': { name: '礦業星 Titania', risk: '中等 (工業週期)', vol: '25%', desc: '地表被巨大鑽探機覆蓋的重工業星球。鈦合金的價格高度依賴全星系的星艦製造成本與軍工政策。', color: '#94a3b8', bg: 'linear-gradient(45deg, #1e293b, #94a3b8)' },
+        'quantum_chip': { name: '科技星 Silicon-9', risk: '高 (技術突破)', vol: '50%', desc: '整顆星球就是一台超級電腦，閃爍著霓虹光芒。晶片良率與新技術發表會導致價格劇烈震盪，是投機客的最愛。', color: '#38bdf8', bg: 'linear-gradient(45deg, #0c4a6e, #38bdf8)' },
+        'antimatter': { name: '邊界星 Void-X', risk: '極高 (致命危險)', vol: '80%', desc: '位於黑洞邊緣，利用引力極端提煉反物質的危險星球。隨時可能發生提煉廠爆炸事件，可能讓你一夜暴富或瞬間破產。', color: '#f43f5e', bg: 'linear-gradient(45deg, #881337, #f43f5e)' }
+    },
 
-const app = express();
-app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+    init: async function() { 
+        // 【修復 1】嘗試從瀏覽器暫存讀取玩家 ID，避免 F5 重新整理後進度消失
+        const savedId = localStorage.getItem('space_tycoon_player_id');
+        if (savedId) {
+            this.playerId = savedId;
+            this.switchScreen('gameScreen');
+            this.refreshGameData();
+        } else {
+            this.loadLeaderboard(); 
+        }
+    },
+    
+    loadLeaderboard: async function() {
+        try {
+            const res = await fetch('/api/leaderboard');
+            const data = await res.json();
+            const list = document.getElementById('startLeaderboardList');
+            list.innerHTML = data.map((p, i) => `<li><span>#${i+1} ${p.name}</span> <span class="text-success">$${p.net_worth}</span></li>`).join('');
+        } catch (e) { console.error("Leaderboard fetch failed"); }
+    },
 
-// 初始化資料庫
-const db = new sqlite3.Database('./tycoon.db');
+    startGame: async function() {
+        const name = document.getElementById('playerNameInput').value.trim();
+        if (!name) return this.showToast('請輸入交易員代號！', 'error');
+        try {
+            const res = await fetch('/api/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+            const data = await res.json();
+            this.playerId = data.id;
+            
+            // 【修復 2】新開局時，把 ID 存進瀏覽器
+            localStorage.setItem('space_tycoon_player_id', this.playerId);
+            
+            this.switchScreen('gameScreen');
+            this.refreshGameData();
+            this.showToast('身分驗證成功，連線至星際交易網', 'success');
+        } catch (e) { this.showToast('系統連線失敗', 'error'); }
+    },
 
-// 定義商品與初始價格、波動率
-const ITEMS = {
-    'rations': { name: '太空口糧', basePrice: 20, volatility: 0.1 },
-    'titanium': { name: '鈦合金', basePrice: 150, volatility: 0.25 },
-    'quantum_chip': { name: '量子晶片', basePrice: 800, volatility: 0.5 },
-    'antimatter': { name: '反物質', basePrice: 3000, volatility: 0.8 }
+    // 【修復 3】新增伺服器失憶處理機制 (踢回首頁)
+    forceLogout: function() {
+        this.playerId = null;
+        this.gameState = null;
+        localStorage.removeItem('space_tycoon_player_id');
+        
+        // 這裡假設你的登入畫面 ID 是 startScreen，請確認你的 HTML
+        document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+        const startScreen = document.getElementById('startScreen') || document.querySelector('.screen');
+        if(startScreen) startScreen.classList.add('active');
+        
+        this.loadLeaderboard();
+        this.showToast('伺服器資料已重置，請重新開始新局', 'error');
+    },
+
+    refreshGameData: async function() {
+        if (!this.playerId) return;
+        try {
+            const res = await fetch(`/api/game/${this.playerId}`);
+            // 如果伺服器回報 400 或找不到人，啟動防呆機制
+            if (!res.ok) return this.forceLogout();
+            
+            this.gameState = await res.json();
+            if (this.gameState.isFinished) return this.showEndScreen();
+            this.renderUI();
+        } catch (e) {
+            console.error(e);
+        }
+    },
+
+    renderUI: function() {
+        const { name, credits, day, market, inventory, eventLog } = this.gameState;
+        document.getElementById('uiName').innerText = name;
+        document.getElementById('uiDay').innerText = `${day}/30`;
+        document.getElementById('uiCredits').innerText = credits.toLocaleString();
+        
+        let netWorth = credits;
+        for (const key in inventory) { netWorth += inventory[key] * market[key].price; }
+        document.getElementById('uiNetWorth').innerText = netWorth.toLocaleString();
+        document.getElementById('eventLog').innerText = `> ${eventLog}`;
+
+        const invHtml = Object.keys(inventory).map(key => `
+            <div class="inv-item" id="inv_${key}">
+                <div class="inv-item-name">${market[key].name}</div>
+                <div class="inv-item-qty">${inventory[key]} <span style="font-size:0.8rem; color:var(--text-muted)">單位</span></div>
+            </div>
+        `).join('');
+        document.getElementById('inventoryGrid').innerHTML = invHtml;
+
+        const marketHtml = Object.keys(market).map(key => {
+            const item = market[key];
+            const diff = item.price - item.oldPrice;
+            let trendHtml = '<span class="text-muted">-</span>';
+            if (diff > 0) trendHtml = `<span class="text-success">▲ +${diff}</span>`;
+            if (diff < 0) trendHtml = `<span class="text-danger">▼ ${diff}</span>`;
+
+            return `
+                <tr>
+                    <td><strong>${item.name}</strong></td>
+                    <td class="price-tag">$${item.price.toLocaleString()}</td>
+                    <td>${trendHtml}</td>
+                    <td>
+                        <div class="action-group">
+                            <input type="number" id="qty_${key}" class="qty-input" value="1" min="1">
+                            <button class="btn btn-outline-success" onclick="app.trade('${key}', 'buy')">買入</button>
+                            <button class="btn btn-outline-danger" onclick="app.trade('${key}', 'sell')">賣出</button>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+        document.getElementById('marketBody').innerHTML = marketHtml;
+
+        this.renderPlanets();
+    },
+
+    renderPlanets: function() {
+        const grid = document.getElementById('planetGrid');
+        if (grid.innerHTML !== "") return;
+        
+        const html = Object.keys(this.planetDB).map(key => {
+            const p = this.planetDB[key];
+            return `
+                <div class="planet-container" onclick="app.openModal('${key}')">
+                    <div class="planet" style="color: ${p.color}; background: ${p.bg};"></div>
+                    <div class="planet-name text-primary">${this.gameState.market[key].name}</div>
+                </div>
+            `;
+        }).join('');
+        grid.innerHTML = html;
+    },
+
+    openModal: function(itemId) {
+        const p = this.planetDB[itemId];
+        document.getElementById('modalTitle').innerText = p.name;
+        document.getElementById('modalResCode').innerText = itemId.toUpperCase();
+        document.getElementById('modalRisk').innerText = p.risk;
+        document.getElementById('modalVol').innerText = p.vol;
+        document.getElementById('modalDesc').innerText = p.desc;
+        
+        const modal = document.getElementById('cyberModal');
+        modal.classList.remove('hidden');
+    },
+
+    closeModal: function() {
+        document.getElementById('cyberModal').classList.add('hidden');
+    },
+
+    trade: async function(itemId, action) {
+        // 【修復 4】強制把輸入的數值轉換為整數 (Number)，避免丟字串給後端導致 400 錯誤
+        const qtyInput = document.getElementById(`qty_${itemId}`).value;
+        const qty = parseInt(qtyInput, 10);
+
+        if (isNaN(qty) || qty <= 0) return this.showToast('請輸入有效的數量！', 'error');
+
+        try {
+            const res = await fetch('/api/trade', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: this.playerId, itemId, action, qty })
+            });
+            const data = await res.json();
+            
+            // 如果後端回報錯誤，拋出訊息
+            if (!res.ok) {
+                if (res.status === 400 && !data.error) throw new Error('連線遺失，請重新整理網頁');
+                throw new Error(data.error || '交易失敗');
+            }
+            
+            this.showToast(`${action === 'buy'?'買入':'賣出'}成功！`, 'success');
+            this.refreshGameData(); 
+        } catch (e) { this.showToast(e.message, 'error'); }
+    },
+
+    nextDay: async function() {
+        try {
+            const res = await fetch('/api/next-day', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: this.playerId })
+            });
+            
+            // 【修復 5】過夜時也檢查伺服器狀態
+            if (!res.ok) return this.forceLogout();
+
+            const data = await res.json();
+            
+            if (data.finished) {
+                this.gameState.netWorth = data.netWorth;
+                this.showEndScreen();
+                // 遊戲結束，清空暫存，下一把重新開始
+                localStorage.removeItem('space_tycoon_player_id');
+            } else {
+                this.triggerDayAnimation(); 
+                this.showToast(`已進入第 ${data.day} 天`, 'primary');
+                this.refreshGameData();
+            }
+        } catch (e) { this.showToast('系統操作失敗', 'error'); }
+    },
+
+    triggerDayAnimation: function() {
+        const symbols = ['+$', '▲', '▼', '%', '!!'];
+        const colors = ['#38bdf8', '#10b981', '#f59e0b', '#ef4444'];
+        
+        for(let i = 0; i < 15; i++) {
+            const particle = document.createElement('div');
+            particle.className = 'resource-particle';
+            particle.innerText = symbols[Math.floor(Math.random() * symbols.length)];
+            particle.style.color = colors[Math.floor(Math.random() * colors.length)];
+            
+            particle.style.left = (Math.random() * 80 + 10) + 'vw';
+            particle.style.bottom = (Math.random() * 20 + 20) + 'vh';
+            
+            document.body.appendChild(particle);
+            setTimeout(() => particle.remove(), 1500);
+        }
+    },
+
+    switchScreen: function(screenId) {
+        document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+        document.getElementById(screenId).classList.add('active');
+    },
+
+    showEndScreen: function() {
+        this.switchScreen('endScreen');
+        document.getElementById('finalNetWorth').innerText = this.gameState.netWorth ? this.gameState.netWorth.toLocaleString() : "結算中...";
+    },
+
+    showToast: function(message, type = 'primary') {
+        const container = document.getElementById('toastContainer');
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        toast.innerText = message;
+        container.appendChild(toast);
+        setTimeout(() => {
+            toast.style.opacity = '0';
+            setTimeout(() => toast.remove(), 300);
+        }, 3000);
+    }
 };
 
-// 市場事件庫
-const EVENTS = [
-    { desc: "星際航線穩定，市場無劇烈波動。", effect: null },
-    { desc: "【突發】反物質儲存槽爆炸，產能大減！反物質價格暴漲。", effect: { target: 'antimatter', multiplier: 2.5 } },
-    { desc: "【新聞】新鈦礦星被發現，鈦合金供過於求。", effect: { target: 'titanium', multiplier: 0.4 } },
-    { desc: "【科技】量子運算技術突破，晶片需求大增。", effect: { target: 'quantum_chip', multiplier: 1.8 } },
-    { desc: "【危機】星際海盜封鎖航線，民生必需品上漲。", effect: { target: 'rations', multiplier: 1.5 } }
-];
-
-db.serialize(() => {
-    db.run(`CREATE TABLE IF NOT EXISTS players (
-        id TEXT PRIMARY KEY, name TEXT, credits INTEGER, day INTEGER, 
-        market_state TEXT, inventory TEXT, event_log TEXT, is_finished BOOLEAN DEFAULT 0
-    )`);
-    db.run(`CREATE TABLE IF NOT EXISTS leaderboard (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, net_worth INTEGER, date DATETIME DEFAULT CURRENT_TIMESTAMP
-    )`);
-});
-
-function generateMarket(oldMarket = null, eventEffect = null) {
-    const market = {};
-    for (const [key, data] of Object.entries(ITEMS)) {
-        let oldPrice = oldMarket ? oldMarket[key].price : data.basePrice;
-        let change = 1 + (Math.random() * data.volatility * 2 - data.volatility);
-        let newPrice = Math.round(oldPrice * change);
-        if (eventEffect && eventEffect.target === key) {
-            newPrice = Math.round(newPrice * eventEffect.multiplier);
-        }
-        newPrice = Math.max(newPrice, 5); 
-        market[key] = { name: data.name, price: newPrice, oldPrice: oldPrice };
-    }
-    return market;
-}
-
-app.post('/api/start', (req, res) => {
-    const { name } = req.body;
-    const id = Date.now().toString();
-    const initCredits = 5000;
-    const initMarket = generateMarket();
-    const initInventory = { 'rations': 0, 'titanium': 0, 'quantum_chip': 0, 'antimatter': 0 };
-    
-    db.run(`INSERT INTO players (id, name, credits, day, market_state, inventory, event_log) 
-            VALUES (?, ?, ?, 1, ?, ?, ?)`,
-        [id, name, initCredits, JSON.stringify(initMarket), JSON.stringify(initInventory), "遊戲開始，給你 5000 信用點啟動資金。"],
-        (err) => {
-            if (err) return res.status(500).json({ error: err.message });
-            res.json({ id, message: '系統初始化成功' });
-        }
-    );
-});
-
-app.get('/api/game/:id', (req, res) => {
-    db.get(`SELECT * FROM players WHERE id = ?`, [req.params.id], (err, row) => {
-        if (err || !row) return res.status(404).json({ error: '找不到玩家' });
-        res.json({
-            name: row.name, credits: row.credits, day: row.day,
-            market: JSON.parse(row.market_state), inventory: JSON.parse(row.inventory),
-            eventLog: row.event_log, isFinished: row.is_finished
-        });
-    });
-});
-
-app.post('/api/trade', (req, res) => {
-    const { id, itemId, action, qty } = req.body;
-    const quantity = parseInt(qty);
-    if (quantity <= 0) return res.status(400).json({ error: '數量必須大於 0' });
-
-    db.get(`SELECT * FROM players WHERE id = ? AND is_finished = 0`, [id], (err, player) => {
-        if (err || !player) return res.status(400).json({ error: '無效的交易狀態' });
-        
-        let credits = player.credits;
-        let inventory = JSON.parse(player.inventory);
-        let market = JSON.parse(player.market_state);
-        let price = market[itemId].price;
-
-        if (action === 'buy') {
-            const cost = price * quantity;
-            if (credits < cost) return res.status(400).json({ error: '信用點不足' });
-            credits -= cost;
-            inventory[itemId] += quantity;
-        } else if (action === 'sell') {
-            if (inventory[itemId] < quantity) return res.status(400).json({ error: '庫存不足' });
-            const revenue = price * quantity;
-            credits += revenue;
-            inventory[itemId] -= quantity;
-        }
-
-        db.run(`UPDATE players SET credits = ?, inventory = ? WHERE id = ?`,
-            [credits, JSON.stringify(inventory), id], (err) => {
-                if (err) return res.status(500).json({ error: '交易失敗' });
-                res.json({ message: '交易成功', credits, inventory });
-            });
-    });
-});
-
-app.post('/api/next-day', (req, res) => {
-    db.get(`SELECT * FROM players WHERE id = ? AND is_finished = 0`, [req.body.id], (err, player) => {
-        if (err || !player) return res.status(400).json({ error: '無效的操作' });
-
-        if (player.day >= 30) {
-            let inventory = JSON.parse(player.inventory);
-            let market = JSON.parse(player.market_state);
-            let netWorth = player.credits;
-            for (let key in inventory) netWorth += inventory[key] * market[key].price;
-            
-            db.run(`UPDATE players SET is_finished = 1 WHERE id = ?`, [player.id]);
-            db.run(`INSERT INTO leaderboard (name, net_worth) VALUES (?, ?)`, [player.name, netWorth]);
-            return res.json({ finished: true, netWorth });
-        }
-
-        const event = EVENTS[Math.floor(Math.random() * EVENTS.length)];
-        const oldMarket = JSON.parse(player.market_state);
-        const newMarket = generateMarket(oldMarket, event.effect);
-
-        db.run(`UPDATE players SET day = day + 1, market_state = ?, event_log = ? WHERE id = ?`,
-            [JSON.stringify(newMarket), event.desc, player.id], (err) => {
-                res.json({ message: '進入下一天', day: player.day + 1, event: event.desc });
-            });
-    });
-});
-
-app.get('/api/leaderboard', (req, res) => {
-    db.all(`SELECT name, net_worth FROM leaderboard ORDER BY net_worth DESC LIMIT 10`, [], (err, rows) => {
-        res.json(rows || []);
-    });
-});
-
-app.listen(3000, () => console.log('Space Tycoon Server running on http://localhost:3000'));
+window.onload = () => app.init();
